@@ -149,6 +149,7 @@ function startRun(ids, difficulty) {
   if (!player.flashlight.on) player.flashlight.toggle?.();
 
   ctx.state = 'playing';
+  dropFocus();
   player.enabled = true;
   ui.hideCreatureCard?.();
   ui.hidePause?.();
@@ -196,6 +197,7 @@ function pause() {
 function resume() {
   if (ctx.state !== 'paused') return;
   ctx.state = 'playing';
+  dropFocus();
   player.enabled = true;
   ui.hidePause();
   player.lock?.();
@@ -223,10 +225,31 @@ function win() {
 // Events
 // ---------------------------------------------------------------------------
 
-bus.on('ui:start', ({ creatureIds, difficulty } = {}) => startRun(creatureIds, difficulty));
-bus.on('ui:restart', () => startRun(run.ids, run.difficulty));
-bus.on('ui:menu', toMenu);
+// Menu buttons keep keyboard focus after a click, so Space or Enter during play would
+// "click" them again. Only accept each event from the screen that owns its button.
+bus.on('ui:start', ({ creatureIds, difficulty } = {}) => {
+  if (ctx.state === 'menu') startRun(creatureIds, difficulty);
+});
+bus.on('ui:restart', () => {
+  if (ctx.state === 'dead' || ctx.state === 'won' || ctx.state === 'paused') startRun(run.ids, run.difficulty);
+});
+bus.on('ui:menu', () => {
+  if (ctx.state === 'dead' || ctx.state === 'won' || ctx.state === 'paused') toMenu();
+});
 bus.on('ui:resume', resume);
+
+const dropFocus = () => {
+  const el = document.activeElement;
+  if (el && el !== document.body) el.blur?.();
+};
+const PLAY_KEYS = new Set(['Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if ((ctx.state === 'playing' || ctx.state === 'dying') && PLAY_KEYS.has(e.code)) e.preventDefault();
+  },
+  true,
+);
 
 bus.on('ui:settings', (s = {}) => {
   if (s.quality && PIXEL_RATIO[s.quality]) ctx.settings.quality = s.quality;
