@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Blackbriar — creature viewer (dev)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #9aa; font: 12px ui-monospace, Menlo, monospace; }
+      #hud { position: fixed; left: 12px; top: 10px; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="hud"></div>
+    <script type="module">
+      // Dev tool: ?id=wendigo&anim=walk&dist=6&h=1.6&yaw=0.4&light=1
+      import * as THREE from 'three';
+      const mods = import.meta.glob('./src/creatures/models/*.js', { eager: true });
+      const q = new URLSearchParams(location.search);
+      const ids = Object.keys(mods).map((p) => p.split('/').pop().replace('.js', '')).filter((n) => !n.startsWith('_'));
+      const state = { id: q.get('id') || ids[0], anim: q.get('anim') || 'idle', dist: +(q.get('dist') || 6), h: +(q.get('h') || 1.6), yaw: +(q.get('yaw') || 0.5), speed: +(q.get('speed') || 2), light: q.get('light') !== '0' };
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      document.body.appendChild(renderer.domElement);
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x05070b);
+      scene.fog = new THREE.FogExp2(0x05070b, 0.028);
+      const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.08, 200);
+      scene.add(camera);
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x1a1d16, roughness: 1 }));
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+      scene.add(new THREE.HemisphereLight(0x22304a, 0x05060a, 0.25));
+      const spot = new THREE.SpotLight(0xfff1d6, 260, 34, 0.42, 0.5, 1.7);
+      spot.castShadow = true;
+      spot.position.set(0.25, -0.2, 0);
+      spot.target.position.set(0, 0, -1);
+      camera.add(spot, spot.target);
+      let current = null;
+      let err = '';
+      function load() {
+        if (current) scene.remove(current.group);
+        current = null;
+        err = '';
+        try {
+          current = mods[`./src/creatures/models/${state.id}.js`].build();
+          scene.add(current.group);
+        } catch (e) {
+          err = String(e?.stack || e);
+          console.error(e);
+        }
+      }
+      load();
+      window.__viewer = { state, ids, load, get current() { return current; }, get err() { return err; } };
+      const clock = new THREE.Clock();
+      let t = 0;
+      (function loop() {
+        requestAnimationFrame(loop);
+        const dt = Math.min(clock.getDelta(), 0.05);
+        t += dt;
+        spot.intensity = state.light ? 260 : 0;
+        const eh = current?.eyeHeight ?? 1.6;
+        camera.position.set(Math.sin(state.yaw) * state.dist, state.h, Math.cos(state.yaw) * state.dist);
+        camera.lookAt(0, eh * 0.62, 0);
+        try {
+          current?.animate(state.anim, t, dt, state.anim === 'idle' || state.anim === 'frozen' ? 0 : state.speed);
+        } catch (e) {
+          if (!err) { err = String(e?.stack || e); console.error(e); }
+        }
+        document.getElementById('hud').textContent = `${state.id}  anim=${state.anim}  h=${current?.height} eye=${current?.eyeHeight}\n${ids.join(' ')}\n${err}`;
+        renderer.render(scene, camera);
+      })();
+    </script>
+  </body>
+</html>
