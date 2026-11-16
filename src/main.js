@@ -104,6 +104,7 @@ function applyDawn() {
     scene.fog.density = nightFog.density * (1 - 0.55 * dawn);
   }
   if (nightBackground && scene.background?.isColor) scene.background.copy(nightBackground).lerp(DAWN_COLOR, dawn);
+  world.setDawn?.(dawn);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +161,8 @@ function startRun(ids, difficulty) {
   audio.resume?.();
   audio.setAmbience?.(true);
   audio.setTension?.(0);
-  player.lock?.();
+  if (player.viewModel?.group) player.viewModel.group.visible = true;
+  acquireLock();
 
   run.hints = [
     [2.5, 'Wake the five wardstones to bring the dawn. The compass marks them.'],
@@ -174,7 +176,11 @@ function toMenu() {
   player.enabled = false;
   player.unlock?.();
   creatures.clear();
+  audio.resume?.(); // leaving the pause screen: don't leave the context suspended
   audio.setTension?.(0);
+  // The player/flashlight don't update in the menu: darken the beam and hide the arm explicitly.
+  player.flashlight?.reset?.();
+  if (player.viewModel?.group) player.viewModel.group.visible = false;
   fx.reset?.();
   fx.setFear?.(0);
   dawn = 0;
@@ -191,6 +197,7 @@ function pause() {
   if (ctx.state !== 'playing') return;
   ctx.state = 'paused';
   player.enabled = false;
+  audio.suspend?.();
   ui.showPause();
 }
 
@@ -199,8 +206,19 @@ function resume() {
   ctx.state = 'playing';
   dropFocus();
   player.enabled = true;
+  audio.resume?.();
   ui.hidePause();
-  player.lock?.();
+  acquireLock();
+}
+
+// Request pointer lock for play. If the browser refuses (Chrome rejects new locks for about a
+// second after an Esc exit), fall back to the pause menu rather than running with a free cursor.
+function lockFailed() {
+  if (ctx.state === 'playing' && document.pointerLockElement !== canvas) pause();
+}
+function acquireLock() {
+  const p = player.lock?.();
+  if (p && typeof p.then === 'function') p.then((ok) => ok === false && lockFailed());
 }
 
 function win() {
@@ -208,6 +226,8 @@ function win() {
   player.enabled = false;
   dawnTarget = 1;
   audio.setTension?.(0);
+  fx.setFear?.(0);
+  creatures.silence?.();
   audio.play?.('wardstone_all');
   for (const c of creatures.list) c.frozen = true;
   ui.setPrompt(null);
@@ -265,8 +285,9 @@ bus.on('ui:settings', (s = {}) => {
 });
 
 bus.on('creature:focus', (f) => {
-  if (f) ui.showCreatureCard(f.def, { firstTime: !!f.firstTime });
-  else ui.hideCreatureCard();
+  if (f) {
+    if (ctx.state === 'playing') ui.showCreatureCard(f.def, { firstTime: !!f.firstTime });
+  } else ui.hideCreatureCard();
 });
 
 bus.on('creature:identified', ({ id }) => {
@@ -295,22 +316,33 @@ bus.on('player:died', ({ creature, def } = {}) => {
     if (ctx.state !== 'dying') return;
     ctx.state = 'dead';
     player.unlock?.();
+    creatures.silence?.();
     audio.setTension?.(0);
+    fx.setFear?.(0);
     ui.showDeath(def || creature?.def, s);
   };
-  if (fx.jumpscare) fx.jumpscare(creature, done);
-  else done();
-  setTimeout(done, 4000); // safety net if the jumpscare never calls back
+  // Safety net first, so a throwing or silent jumpscare can never leave the game in 'dying'.
+  setTimeout(done, 4000);
+  try {
+    if (fx.jumpscare) fx.jumpscare(creature, done);
+    else done();
+  } catch (err) {
+    console.error('[main] jumpscare threw', err);
+    done();
+  }
 });
 
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   if (!locked && run.wasLocked && ctx.state === 'playing') pause();
+  // Esc during a pending request pauses first; if the lock is then granted, give it back.
+  if (locked && ctx.state !== 'playing') player.unlock?.();
   run.wasLocked = locked;
 });
+document.addEventListener('pointerlockerror', lockFailed);
 canvas.addEventListener('click', () => {
-  audio.resume?.();
-  if (ctx.state === 'playing' && document.pointerLockElement !== canvas) player.lock?.();
+  if (ctx.state !== 'paused') audio.resume?.();
+  if (ctx.state === 'playing' && document.pointerLockElement !== canvas) acquireLock();
 });
 window.addEventListener('keydown', (e) => {
   // Esc without pointer lock (lock denied / never acquired) still pauses.

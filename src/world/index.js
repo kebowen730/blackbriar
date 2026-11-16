@@ -222,17 +222,22 @@ export function createWorld(ctx, { seed = 1 } = {}) {
     landmarks,
     playerSpawn: lm.spawn.clone(),
     playerSpawnYaw: lm.spawnYaw,
-    lights: { moon, hemi, lantern: lm.lantern },
+    lights: { moon, hemi, lantern: lm.lantern, wardPool: wd.lights },
     randomPoint,
     update(dt, c = ctx) {
       clock += dt;
       timeU.value = clock;
       water.update(clock);
-      wd.update(clock);
+      wd.update(clock, dt, (c?.camera || ctx.camera)?.position);
       sky.follow(c?.camera || ctx.camera);
       if (lm.lantern) lm.lantern.intensity = lanternBase * (0.93 + 0.05 * Math.sin(clock * 7.3) * Math.sin(clock * 2.1) + 0.02 * Math.sin(clock * 19));
     },
+    // 0 = night (default), 1 = full pale dawn sky. Uniform writes only; idempotent.
+    setDawn(k) {
+      sky.setDawn(k);
+    },
     reset() {
+      sky.setDawn(0);
       for (const w of wd.wardstones) w.reset();
     },
   };

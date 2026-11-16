@@ -154,7 +154,8 @@ export class Creature {
     const dx = this.pos.x - p.pos.x;
     const dz = this.pos.z - p.pos.z;
     const inv = 1 / (Math.hypot(dx, dz) || 1);
-    const dot = dx * inv * p.forward.x + dz * inv * p.forward.z;
+    const fh = Math.hypot(p.forward.x, p.forward.z) || 1;
+    const dot = (dx * inv * p.forward.x + dz * inv * p.forward.z) / fh;
     if (dot < 0.55) return false; // ~57° half-angle view cone
     return this.hasLineOfSight();
   }
@@ -165,7 +166,8 @@ export class Creature {
     const dx = this.pos.x - p.pos.x;
     const dz = this.pos.z - p.pos.z;
     const inv = 1 / (Math.hypot(dx, dz) || 1);
-    return dx * inv * p.forward.x + dz * inv * p.forward.z < threshold;
+    const fh = Math.hypot(p.forward.x, p.forward.z) || 1;
+    return (dx * inv * p.forward.x + dz * inv * p.forward.z) / fh < threshold;
   }
 
   /**
@@ -302,7 +304,9 @@ export class Creature {
     const sz = Math.cos(yaw) * speed * dt;
     const bx = this.pos.x;
     const bz = this.pos.z;
-    this._advance(sx, sz, opts.fly);
+    // sub-step so a fast charge cannot tunnel through a thin trunk collider
+    const n = Math.max(1, Math.ceil(Math.hypot(sx, sz) / 0.35));
+    for (let i = 0; i < n; i++) this._advance(sx / n, sz / n, opts.fly, i < n - 1);
     this.speed = speed;
     const moved = Math.hypot(this.pos.x - bx, this.pos.z - bz);
     return moved < speed * dt * 0.45;
@@ -377,6 +381,7 @@ export class Creature {
     const w = this.ctx.world;
     const half = (w?.half ?? 180) - 6;
     const fwdYaw = Math.atan2(p.forward.x, p.forward.z);
+    const fh = Math.hypot(p.forward.x, p.forward.z) || 1;
     const tries = opts.tries ?? 14;
     for (let i = 0; i < tries; i++) {
       const a = opts.behind ? fwdYaw + Math.PI + (Math.random() - 0.5) * 2.4 : Math.random() * TAU;
@@ -387,7 +392,7 @@ export class Creature {
       if (w?.isWater?.(x, z) || this._blocked(x, z)) continue;
       const y = w?.heightAt?.(x, z) ?? 0;
       if (opts.unseen !== false) {
-        const dot = Math.sin(a) * p.forward.x + Math.cos(a) * p.forward.z;
+        const dot = (Math.sin(a) * p.forward.x + Math.cos(a) * p.forward.z) / fh;
         if (dot > 0.45) {
           _a.set(x, y + (this.model.eyeHeight || 1.6), z);
           if (w?.lineOfSight?.(_a, p.eye)) continue;
@@ -408,7 +413,7 @@ export class Creature {
     return false;
   }
 
-  _advance(dx, dz, fly) {
+  _advance(dx, dz, fly, skipY = false) {
     this.pos.x += dx;
     this.pos.z += dz;
     const w = this.ctx.world;
@@ -418,7 +423,7 @@ export class Creature {
       this.pos.x = clamp(this.pos.x, -half, half);
       this.pos.z = clamp(this.pos.z, -half, half);
     }
-    this._settleY();
+    if (!skipY) this._settleY();
   }
 
   _settleY() {
@@ -449,6 +454,9 @@ export class Creature {
   }
 
   onSpawn() {}
+
+  /** Stop any audio loops / restore player state (pause, death, win). Brains with loops override; think() re-creates them lazily. */
+  silence() {}
 
   /** Default brain: wander, investigate noises, chase on sight. Brains override this entirely. */
   think(dt) {

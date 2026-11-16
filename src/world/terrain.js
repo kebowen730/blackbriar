@@ -67,10 +67,10 @@ export function createTerrain(seed = 1) {
       const s = sites[i];
       const dx = x - s.x;
       const dz = z - s.z;
-      const R = s.pad * 1.9;
+      const R = s.pad * 3;
       const d2 = dx * dx + dz * dz;
       if (d2 < R * R) {
-        const w = 1 - sm(s.pad, R, Math.sqrt(d2));
+        const w = 1 - sm(s.pad, R, Math.sqrt(d2)); // wide blend: slope stays resolvable by the 2.5 m mesh
         h += (s.h - h) * w;
       }
     }
@@ -98,15 +98,19 @@ export function createTerrain(seed = 1) {
     return base + (pondW + 0.2 - base) * e;
   }
 
+  const QO = 3.6; // pond bowl influence (normalised ellipse radius^2): wide so the rim slope is mesh-resolvable
+
   function heightAt(x, z) {
     let h = flatH(x, z);
     const dx = (x - P.x) / P.rx;
     const dz = (z - P.z) / P.rz;
     const q = dx * dx + dz * dz;
-    if (q < 2.4) {
+    let hPond = h;
+    if (q < QO) {
       const edge = pondW + 0.35;
       if (q < 1) h = edge - 1.3 * (1 - q);
-      else h = edge + (h - edge) * sm(1, 2.4, q);
+      else h = edge + (h - edge) * sm(1, QO, q);
+      hPond = h;
     }
     if (z < P.z) {
       const ad = Math.abs(x - cx(z));
@@ -120,6 +124,8 @@ export function createTerrain(seed = 1) {
           } else h = Lv + (h - Lv) * sm(W, W + 8, d);
         }
       }
+      // inside the pond's influence the creek may only deepen the floor, never raise it above the bowl
+      if (q < QO && h > hPond) h -= (h - hPond) * (1 - sm(1, QO, q));
     }
     return h;
   }

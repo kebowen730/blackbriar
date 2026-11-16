@@ -25,6 +25,7 @@ export default class Llorona extends Creature {
     m.nextReloc = 60 + Math.random() * 30;
     m.litT = 0;
     m.rock = false;
+    m.walkUntil = 0;
     m.calmUntil = 0;
     m.noLos = 0;
     m.vol = 0.5;
@@ -90,7 +91,9 @@ export default class Llorona extends Creature {
   onNoise(evt) {
     super.onNoise(evt);
     if (!evt?.pos || evt.source === this) return;
-    if ((evt.kind === 'rock' || evt.kind === 'slingshot') && this.distTo(evt.pos) < 6) this.mem.rock = true;
+    if ((evt.kind === 'rock' || evt.kind === 'slingshot') && this.distTo(evt.pos) < 6) {
+      if (this.state === 'weep' && this.ctx.time >= this.mem.calmUntil) this.mem.rock = true;
+    }
   }
 
   onAlert() {}
@@ -171,7 +174,7 @@ export default class Llorona extends Creature {
         // --- weeping / occasional walk along the bank ---
         if (m.walkTo) {
           this.anim = 'walk';
-          if (this.moveToward(m.walkTo, 1.2, dt) < 1 || this.stateTime > 60) {
+          if (this.moveToward(m.walkTo, 1.2, dt) < 1 || now > m.walkUntil) {
             m.walkTo = null;
             m.home.copy(this.pos);
             m.nextWalk = now + 8 + Math.random() * 14;
@@ -181,7 +184,10 @@ export default class Llorona extends Creature {
           this.stop();
           if (!grace && !calm && now > m.nextWalk) {
             const pt = this._findBank(m.home, 40, 6);
-            if (pt) m.walkTo = pt;
+            if (pt) {
+              m.walkTo = pt;
+              m.walkUntil = now + 60;
+            }
             else m.nextWalk = now + 15;
           }
         }
@@ -232,6 +238,7 @@ export default class Llorona extends Creature {
           this.endChase();
           this.setState('return');
           m.calmUntil = now + 15;
+          m.rock = false;
         }
         break;
       }
@@ -261,6 +268,17 @@ export default class Llorona extends Creature {
       const pt = this.pickPointNear(p.pos, 70);
       const wd = this._waterDist(pt.x, pt.z);
       if (wd > 7) continue;
+      {
+        const ex = pt.x - p.pos.x;
+        const ez = pt.z - p.pos.z;
+        const el = Math.hypot(ex, ez) || 1;
+        const fl = Math.hypot(p.forward.x, p.forward.z) || 1;
+        const dot = (ex / el) * (p.forward.x / fl) + (ez / el) * (p.forward.z / fl);
+        if (dot > 0.45) {
+          const head = new THREE.Vector3(pt.x, pt.y + (this.model.eyeHeight || 1.6), pt.z);
+          if (this.ctx.world?.lineOfSight?.(head, p.eye)) continue; // would pop into view
+        }
+      }
       const dp = Math.hypot(pt.x - p.pos.x, pt.z - p.pos.z);
       const score = Math.abs(dp - 38) + wd * 0.5;
       if (score < bestScore) {
@@ -275,13 +293,18 @@ export default class Llorona extends Creature {
     }
   }
 
-  dispose() {
+  silence() {
     try {
       this.mem.loop?.stop?.();
     } catch (e) {
       /* ignore */
     }
     this.mem.loop = null;
+    this.mem.loopTried = false; // _weepAudio lazily recreates it
+  }
+
+  dispose() {
+    this.silence();
     this.endChase();
   }
 }

@@ -16,7 +16,8 @@ const BASE_FOV = 72;
 
 export function createFX(ctx) {
   const { renderer, scene, camera } = ctx;
-  let quality = ctx.settings?.quality || 'medium';
+  const QUALITIES = ['low', 'medium', 'high'];
+  let quality = QUALITIES.includes(ctx.settings?.quality) ? ctx.settings.quality : 'medium';
 
   // shared state (jumpscare writes into it too)
   const S = { fade: 0, pulse: 0, red: 0 };
@@ -30,14 +31,32 @@ export function createFX(ctx) {
 
   function samplesFor(q) { return q === 'high' ? 4 : q === 'medium' ? 2 : 0; }
 
+  // composer.dispose() only frees its two targets + copy pass; the passes (bloom mips, materials) must be disposed too.
+  function disposeComposer() {
+    if (!composer) return;
+    for (const p of composer.passes) { try { p.dispose?.(); } catch (e) { /* ignore */ } }
+    try { composer.dispose(); } catch (e) { /* ignore */ }
+    composer = null; finalPass = null; bloomPass = null;
+  }
+
   function buildComposer() {
-    if (composer) { try { composer.dispose(); } catch (e) { /* ignore */ } }
+    disposeComposer();
     renderer.getSize(sizeV);
     const pr = renderer.getPixelRatio();
     const w = Math.max(1, Math.floor(sizeV.x * pr));
     const h = Math.max(1, Math.floor(sizeV.y * pr));
     const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: samplesFor(quality) });
     composer = new EffectComposer(renderer, rt);
+    // Pass order: RenderPass draws into readBuffer (= renderTarget2, the clone of rt), bloom (needsSwap=false)
+    // blends into that same buffer, then the final ShaderPass reads renderTarget2 and writes renderTarget1
+    // (then swaps), and OutputPass reads renderTarget1 -> screen. So only renderTarget2 needs MSAA + depth;
+    // renderTarget1 (the original rt, writeBuffer at start) is a plain colour target. Same for every quality.
+    const plain = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 0, depthBuffer: false });
+    plain.texture.name = 'EffectComposer.rt1';
+    composer.renderTarget1.dispose();
+    composer.renderTarget1 = plain;
+    composer.writeBuffer = plain;
+    composer.readBuffer = composer.renderTarget2;
     composer.setPixelRatio(pr);
     composer.setSize(sizeV.x, sizeV.y);
     composer.addPass(new RenderPass(scene, camera));
@@ -67,7 +86,7 @@ export function createFX(ctx) {
   }
 
   function setQuality(q) {
-    if (!q || q === quality) return;
+    if (!QUALITIES.includes(q) || q === quality) return;
     const rebuild = samplesFor(q) !== samplesFor(quality) || (q === 'high') !== (quality === 'high');
     quality = q;
     particles.setQuality(q);
@@ -109,6 +128,7 @@ export function createFX(ctx) {
   }
 
   function render(dt) {
+    if (!composer) return;
     dt = Math.min(Math.max(dt || 0, 0), 0.1);
     time += dt;
 
@@ -170,7 +190,7 @@ export function createFX(ctx) {
     dispose() {
       ctx.bus?.off?.('ui:settings', onSettings);
       particles.dispose();
-      try { composer.dispose(); } catch (e) { /* ignore */ }
+      disposeComposer();
     },
   };
 }

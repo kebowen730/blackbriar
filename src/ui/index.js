@@ -70,7 +70,8 @@ export function createUI(ctx) {
   const audio = () => ctx.audio;
 
   function click() {
-    audio()?.resume?.();
+    // Don't un-suspend the audio context from clicks on the pause menu (settings etc.).
+    if (ctx.state !== 'paused') audio()?.resume?.();
     audio()?.play?.('ui_click');
   }
   function button(label, cls, fn) {
@@ -467,7 +468,9 @@ export function createUI(ctx) {
   }
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Tab' || e.key === 'Tab') {
-      if (hudOn || journalOn) {
+      // Only claim Tab while the journal is open or can be toggled; elsewhere (pause, menus,
+      // death/win screens) leave it alone so keyboard focus can move.
+      if (journalOn || (hudOn && ctx.state === 'playing')) {
         e.preventDefault();
         if (e.repeat) return;
         if (journalOn || ctx.state === 'playing') setJournal(!journalOn);
@@ -621,6 +624,9 @@ export function createUI(ctx) {
   }
 
   const ui = {
+    get journalOpen() {
+      return journalOn;
+    },
     showMenu() {
       hudOn = false;
       hideAllOverlays();

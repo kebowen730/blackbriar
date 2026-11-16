@@ -169,12 +169,17 @@ export default class Mothman extends Creature {
     }
   }
 
-  dispose() {
+  silence() {
     try {
       this.mem.loop?.stop?.();
     } catch (e) {
       /* ignore */
     }
     this.mem.loop = null;
+    this.mem.loopTried = false; // think() lazily recreates it
+  }
+
+  dispose() {
+    this.silence();
   }
 }

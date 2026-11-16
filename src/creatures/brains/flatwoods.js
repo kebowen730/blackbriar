@@ -62,6 +62,11 @@ export default class Flatwoods extends Creature {
 
     const los = this.hasLineOfSight();
 
+    // not fooled by hiding within 12 m with line of sight (it watches the player duck in)
+    if (d < 12 && los && (!p.hidden || this.ctx.time <= this.sawHideUntil)) {
+      this.sawHideUntil = this.ctx.time + 1.5;
+    }
+
     // --- sense: alien awareness of roughly where the player is ------------
     m.sampleT += dt;
     if (m.sampleT >= 4 || !m.hasTarget) {
@@ -140,7 +145,7 @@ export default class Flatwoods extends Creature {
     }
   }
 
-  dispose() {
+  silence() {
     this._restore();
     const fl = this.ctx.player?.flashlight;
     if (fl) fl.drainMultiplier = 1;
@@ -150,6 +155,11 @@ export default class Flatwoods extends Creature {
       /* ignore */
     }
     this.mem.loop = null;
+    this.mem.loopTried = false; // think() lazily recreates the loop if play continues
+  }
+
+  dispose() {
+    this.silence();
     this.endChase();
   }
 }

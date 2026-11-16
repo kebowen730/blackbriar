@@ -18,6 +18,7 @@ export function buildSky(root, seed) {
       uHorizon: { value: new THREE.Color(0x05070b) },
       uMid: { value: new THREE.Color(0x0a1220) },
       uZenith: { value: new THREE.Color(0x02040a) },
+      uMoonK: { value: 1 }, // 1 = night moon, 0 = washed out by dawn
     },
     vertexShader: `
       varying vec3 vDir;
@@ -27,7 +28,7 @@ export function buildSky(root, seed) {
         gl_Position = projectionMatrix * p;
       }`,
     fragmentShader: `
-      uniform vec3 uMoon; uniform vec3 uHorizon; uniform vec3 uMid; uniform vec3 uZenith;
+      uniform vec3 uMoon; uniform vec3 uHorizon; uniform vec3 uMid; uniform vec3 uZenith; uniform float uMoonK;
       varying vec3 vDir;
       void main(){
         vec3 d = normalize(vDir);
@@ -42,8 +43,8 @@ export function buildSky(root, seed) {
         vec3 moonCol = vec3(0.82, 0.9, 1.0);
         // faint maria on the disc
         float mare = 0.84 + 0.16 * sin(d.x * 61.0 + 1.3) * sin(d.z * 47.0 + d.y * 39.0);
-        col += moonCol * halo * step(0.0, d.y + 0.05);
-        col = mix(col, moonCol * mare * 1.15, disc);
+        col += moonCol * halo * step(0.0, d.y + 0.05) * uMoonK;
+        col = mix(col, moonCol * mare * 1.15, disc * uMoonK);
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -83,6 +84,7 @@ export function buildSky(root, seed) {
   sg.setAttribute('aSize', new THREE.BufferAttribute(sz, 1));
   sg.setAttribute('aBr', new THREE.BufferAttribute(br, 1));
   const starMat = new THREE.ShaderMaterial({
+    uniforms: { uFade: { value: 1 } },
     transparent: true,
     depthWrite: false,
     fog: false,
@@ -95,12 +97,13 @@ export function buildSky(root, seed) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
       }`,
     fragmentShader: `
+      uniform float uFade;
       varying float vBr;
       void main(){
         vec2 c = gl_PointCoord - 0.5;
         float a = smoothstep(0.5, 0.1, length(c));
         vec3 col = mix(vec3(0.7,0.8,1.0), vec3(1.0,0.95,0.85), vBr*vBr);
-        gl_FragColor = vec4(col * vBr * 0.9, a);
+        gl_FragColor = vec4(col * vBr * 0.9 * uFade, a);
       }`,
   });
   const stars = new THREE.Points(sg, starMat);
@@ -109,8 +112,38 @@ export function buildSky(root, seed) {
   group.add(stars);
 
   root.add(group);
+
+  // dawn: night gradient -> pale dawn gradient (horizon matches the dawn fog 0x6f7f8f). Uniform writes only.
+  const U = domeMat.uniforms;
+  const nightH = new THREE.Color(0x05070b);
+  const nightM = new THREE.Color(0x0a1220);
+  const nightZ = new THREE.Color(0x02040a);
+  const dawnH = new THREE.Color(0x6f7f8f);
+  const dawnM = new THREE.Color(0x5a6a80);
+  const dawnZ = new THREE.Color(0x3b4960);
+  let dawnK = 0;
+  function setDawn(k) {
+    k = k > 1 ? 1 : k > 0 ? k : 0;
+    if (k === dawnK) return;
+    dawnK = k;
+    if (k === 0) {
+      U.uHorizon.value.copy(nightH);
+      U.uMid.value.copy(nightM);
+      U.uZenith.value.copy(nightZ);
+    } else {
+      U.uHorizon.value.lerpColors(nightH, dawnH, k);
+      U.uMid.value.lerpColors(nightM, dawnM, k);
+      U.uZenith.value.lerpColors(nightZ, dawnZ, k);
+    }
+    const star = 1 - Math.min(1, k * 1.6); // stars die out first
+    starMat.uniforms.uFade.value = star;
+    stars.visible = star > 0.002;
+    U.uMoonK.value = 1 - Math.min(1, k * 1.25) * 0.97; // moon fades to a ghost
+  }
+
   return {
     group,
+    setDawn,
     follow(camera) {
       if (camera) group.position.copy(camera.position);
     },

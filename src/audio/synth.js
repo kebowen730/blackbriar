@@ -315,13 +315,18 @@ export class Shot extends Rig {
     this.out.gain.linearRampToValueAtTime(0, e);
   }
   kill() {
-    if (this.dead) return;
+    if (this.dead || this.killed) return;
+    this.killed = true;
     const t = this.ac.currentTime;
     try {
       this.out.gain.cancelScheduledValues(t);
       this.out.gain.setTargetAtTime(0, t, 0.02);
+      // every source was start()ed in osc()/noise(), so stop() cannot throw InvalidStateError; guarded anyway
       for (const s of this.srcs) { try { s.stop(t + 0.12); } catch (e) { /* ignore */ } }
-    } catch (e) { this.cleanup(); }
+    } catch (e) { this.cleanup(); return; }
+    // don't rely on 'ended' (not guaranteed for sources scheduled to start later, or while suspended):
+    // force cleanup (disconnect + counters + onDone) shortly after the fade.
+    setTimeout(() => this.cleanup(), 200);
   }
   cleanup() {
     if (this.dead) return;
@@ -334,7 +339,7 @@ export class Shot extends Rig {
 
 /** Build + play a one-shot recipe. Returns the Shot or null. */
 export function spawn(E, recipe, o = {}, arg) {
-  if (!E.ac || E.ac.state !== 'running') return null;
+  if (!E.ac || E.paused || E.ac.state !== 'running') return null;
   if (!o.force && E.active.size >= 56) return null;
   let s;
   try {

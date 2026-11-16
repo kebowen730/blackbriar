@@ -22,6 +22,8 @@ export default class Nightcrawler extends Creature {
     this.mem.ovUntil = -1;
     this.mem.ovNew = false;
     this.mem.nextPause = 6 + Math.random() * 8;
+    this.mem.bestRem = Infinity;
+    this.mem.noProg = 0;
     this.mem.pauseUntil = 0;
     this.state = 'drift';
   }
@@ -57,10 +59,12 @@ export default class Nightcrawler extends Creature {
     if (ov && m.ovNew) {
       m.ovNew = false;
       m.target.copy(m.ovPos);
+      m.bestRem = Infinity;
+      m.noProg = 0;
       if (this.state === 'drift' || this.state === 'hold') this._startNotice();
       else if (this.state === 'notice') {
         /* target already updated */
-      } else this.state === 'home' || this.setState('home');
+      } else if (this.state !== 'home') this.setState('home');
     } else if (!ov && hears) {
       m.target.copy(p.pos);
       if (this.state === 'drift' || this.state === 'hold') this._startNotice();
@@ -71,14 +75,23 @@ export default class Nightcrawler extends Creature {
         this.anim = 'special';
         this.stop();
         this.faceToward(m.target, dt, 8);
-        if (this.stateTime >= NOTICE_TIME) this.setState('home');
+        if (this.stateTime >= NOTICE_TIME) {
+          m.bestRem = Infinity;
+          m.noProg = 0;
+          this.setState('home');
+        }
         break;
       }
       case 'home': {
         if (!ov && hears) m.target.copy(p.pos); // keep re-targeting while the sound lasts
         this.anim = 'run';
         const rem = this.moveToward(m.target, HOME_SPEED * this.speedMul(), dt, { turn: 8 });
-        if (rem < 1.2 && (ov || !hears)) {
+        if (rem < m.bestRem - 0.15) {
+          m.bestRem = rem;
+          m.noProg = 0;
+        } else m.noProg += dt;
+        // arrived, blocked for ~1 s (stone / rock outside the map), or homing too long with nothing to hear
+        if ((rem < 2.2 && (ov || !hears)) || (m.noProg > 1 && (ov || !hears)) || (this.stateTime > 12 && !hears)) {
           this.setState('hold');
           this.stop();
         }
@@ -118,9 +131,9 @@ export default class Nightcrawler extends Creature {
       this.stop();
       return;
     }
-    if (this.stateTime > m.nextPause) {
+    if (now > m.nextPause) {
       m.pauseUntil = now + 2 + Math.random() * 3.5;
-      m.nextPause = this.stateTime + 8 + Math.random() * 12;
+      m.nextPause = now + 8 + Math.random() * 12;
       return;
     }
     this.anim = 'walk';

@@ -10,6 +10,7 @@ const EYE_STAND = 1.68;
 const EYE_CROUCH = 0.95;
 const RADIUS = 0.35;
 const TWO_PI = Math.PI * 2;
+const STAMINA_MIN = 0.02; // sprint needs more than this; at or below it the player is exhausted
 
 export function createPlayer(ctx) {
   const dom = ctx.renderer?.domElement;
@@ -73,6 +74,8 @@ export function createPlayer(ctx) {
 
   window.addEventListener('keydown', (e) => {
     if (!player.enabled || !player.alive) return;
+    // Arrow Up/Down scroll the journal while it is open; they must not walk the player.
+    if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && ctx.ui?.journalOpen) return;
     keys[e.code] = true;
     if (e.repeat) return;
     switch (e.code) {
@@ -124,12 +127,16 @@ export function createPlayer(ctx) {
   }
 
   // ---------------------------------------------------------------- API
+  // Returns a Promise<boolean>: false when the browser refused the lock (rejected promise or a
+  // synchronous throw). Browsers without a promise-returning requestPointerLock resolve true;
+  // they report refusal through the document 'pointerlockerror' event instead.
   player.lock = () => {
     try {
       const p = dom?.requestPointerLock?.();
-      if (p && p.catch) p.catch(() => {});
+      if (p && typeof p.then === 'function') return p.then(() => true, () => false);
+      return Promise.resolve(!!dom?.requestPointerLock);
     } catch (e) {
-      /* ignore */
+      return Promise.resolve(false);
     }
   };
   player.unlock = () => {
@@ -196,13 +203,15 @@ export function createPlayer(ctx) {
 
     if (active) {
       // ---- intent
+      // Drop any arrow state held from before the journal opened, so nothing is stuck on close.
+      if (ctx.ui?.journalOpen) keys.ArrowUp = keys.ArrowDown = false;
       const fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
       const str = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
       const hasInput = fwd !== 0 || str !== 0;
       const shift = keys.ShiftLeft || keys.ShiftRight;
       const ctrl = false; // Ctrl is not bound: Ctrl+W would close the browser tab mid-run
 
-      let wantSprint = !!shift && fwd > 0 && !exhausted && player.stamina > 0.02;
+      let wantSprint = !!shift && fwd > 0 && !exhausted && player.stamina > STAMINA_MIN;
       if (wantSprint) crouchToggle = false;
       const crouching = !wantSprint && (ctrl || crouchToggle);
       player.isCrouching = crouching;
@@ -254,7 +263,7 @@ export function createPlayer(ctx) {
       if (player.isSprinting) {
         player.stamina = Math.max(0, player.stamina - dt / 7);
         staminaDelay = 1.2;
-        if (player.stamina <= 0) {
+        if (player.stamina <= STAMINA_MIN) {
           exhausted = true;
           breathT = 0;
         }

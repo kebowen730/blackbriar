@@ -13,6 +13,7 @@ export function createAudio(ctx) {
   let wantAmb = false;
   let tTarget = 0, tCur = 0;
   let amb = null, tension = null;
+  let paused = false;
   const lastVoice = Object.create(null);
 
   const dummyLoop = () => ({ setPos() {}, setVolume() {}, stop() {} });
@@ -46,23 +47,41 @@ export function createAudio(ctx) {
   const audio = {
     resume() {
       try {
+        const wasPaused = paused;
+        paused = false;
+        E.paused = false;
         if (!E.ac) {
           if (!initEngine(E, volume)) return;
           amb = createAmbience(E);
           tension = createTension(E);
           if (wantAmb) amb.start();
         }
-        if (E.ac.state === 'suspended') {
+        // also when state still reads 'running' but a suspend() is in flight (control messages are ordered)
+        if (wasPaused || E.ac.state !== 'running') {
           const p = E.ac.resume();
           if (p && p.catch) p.catch(() => {});
         }
+        if (wasPaused) tension?.resync();
       } catch (e) {
         console.warn('[audio] resume failed', e);
       }
     },
 
-    update(dt) {
+    /** Pause all audio (pause menu). No-op before the context exists. resume() undoes it. */
+    suspend() {
       if (!E.ac) return;
+      paused = true;
+      E.paused = true;
+      try {
+        if (E.ac.state === 'running') {
+          const p = E.ac.suspend();
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch (e) { /* ignore */ }
+    },
+
+    update(dt) {
+      if (!E.ac || paused || E.ac.state !== 'running') return;
       dt = clamp(dt || 0, 0, 0.25);
       try {
         updateListener();
@@ -137,9 +156,12 @@ export function createAudio(ctx) {
     stopAll() {
       wantAmb = false;
       tTarget = 0;
+      tCur = 0;
       if (!E.ac) return;
       for (const L of Array.from(E.loops)) { try { L.stopFn?.(); } catch (e) { /* ignore */ } }
       for (const s of Array.from(E.active)) s.kill();
+      E.voices = 0;
+      tension?.silence();
       amb?.stop();
     },
   };

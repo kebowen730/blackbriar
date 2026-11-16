@@ -326,6 +326,9 @@ export function buildLandmarks(env) {
       }
       if (i !== 7) s.col(x, fz, 0.14, 1.35);
     }
+    // railed spans block the player (r 0.35) and creatures; x in (-4, -1) stays open as the gap
+    s.chain(-7, fz, -4, fz, 0.2, 1.35, 0.4);
+    s.chain(0, fz, 2, fz, 0.2, 1.35, 0.4);
     pb.box(0.06, 0.06, 1.0, { x: -3.6, y: 0.03, z: fz + 0.5, rx: 0.1, color: METAL }); // fallen rail
     // gate pillars
     for (const x of [-8, 3]) {

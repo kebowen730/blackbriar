@@ -34,7 +34,7 @@ export default class JerseyDevil extends Creature {
     m.target.copy(pos);
     m.targetIsPlayer = isPlayer;
     this.setState('telegraph');
-    this.startChase();
+    if (isPlayer) this.startChase(); // a rock charge is not a hunt: no stinger, no tension
     this.voice('special', { minGap: 0 });
   }
 

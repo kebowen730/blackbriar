@@ -95,7 +95,8 @@ world = {
   playerSpawn: Vector3, playerSpawnYaw: number,
   randomPoint(rng, { minDistFrom /*Vector3*/, minDist = 0, avoidWater = true } = {}) -> Vector3,  // walkable point on the ground, not inside a collider
   update(dt, ctx),                    // wind sway uniforms, wardstone flicker, etc.
-  reset(),                            // un-light wardstones
+  reset(),                            // un-light wardstones, setDawn(0)
+  setDawn(k),                         // 0..1: lighten the sky dome, fade stars and moon (win sequence)
 }
 ```
 
@@ -188,6 +189,10 @@ set `this.anim` and move with the helpers; they never touch the model directly.
 
 Hunting patterns (each must feel different):
 
+The manager (`ctx.creatures`) also exposes `silence()`, which stops every creature's audio
+loop; main calls it on death and on win. Brains that own loops implement `silence()` and
+recreate the loop lazily if play continues.
+
 - **wendigo** — relentless tracker. Follows the player's scent trail (`ctx.creatures.trail`, breadcrumbs) at walking pace forever; sprints (faster than the player) on sight; mimics a human voice (`voice('special')`) when far. Hiding works only if it never saw you hide.
 - **skinwalker** — stalker. Keeps 18–30 m away at the edge of the light, circling. Advances only while unobserved; retreats when lit. Charges once within ~9 m or when you turn your back for long.
 - **dogman** — pursuit predator. Patrols widely, hears sprinting from very far, runs faster than you. Loses you easily if line of sight breaks or you hide; highly distractible by rocks.
@@ -207,7 +212,8 @@ Hunting patterns (each must feel different):
 
 ```js
 audio = {
-  resume(),                         // call on first user gesture
+  resume(),                         // call on first user gesture, and when leaving pause
+  suspend(),                        // pause: suspend the context; nothing is scheduled until resume()
   update(dt),                       // reads ctx.camera for listener position/orientation
   setMaster(v), setTension(v /*0..1: heartbeat rate + dissonant drone*/),
   setAmbience(on),                  // wind, creaking trees, crickets, distant owls, occasional far-off twig snaps

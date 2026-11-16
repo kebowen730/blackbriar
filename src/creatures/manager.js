@@ -131,6 +131,17 @@ export function createCreatureManager(ctx) {
       }
     },
 
+    /** Stop every creature's audio loops / player-state side effects (call on death, win, pause). */
+    silence() {
+      for (const c of mgr.list) {
+        try {
+          c.silence?.();
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    },
+
     /** Tell every creature (except `source`) where the player is. */
     alertAll(pos, source = null) {
       for (const c of mgr.list) {
@@ -196,7 +207,12 @@ export function createCreatureManager(ctx) {
       mgr.tension += (tension - mgr.tension) * Math.min(1, dt * (tension > mgr.tension ? 4 : 0.6));
 
       // --- flashlight identification ---------------------------------------
-      if (lit && lit._litTime >= IDENTIFY_TIME) {
+      if (ctx.state !== 'playing') {
+        if (mgr.focus) {
+          mgr.focus = null;
+          ctx.bus.emit('creature:focus', null);
+        }
+      } else if (lit && lit._litTime >= IDENTIFY_TIME) {
         const firstTime = !mgr.identified.has(lit.id);
         if (firstTime) {
           mgr.identified.add(lit.id);

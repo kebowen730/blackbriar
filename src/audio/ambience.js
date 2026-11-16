@@ -188,7 +188,8 @@ export function createTension(E) {
       // heartbeat scheduler
       if (v > 0.15 && ac.state === 'running') {
         const now = ac.currentTime;
-        if (nextBeat < now - 0.2) nextBeat = now + 0.05;
+        // never schedule in the past: after a hitch / resume, skip ahead instead of playing late beats
+        if (nextBeat < now + 0.02) nextBeat = now + 0.03;
         const bpm = 55 + 95 * clamp((v - 0.15) / 0.85, 0, 1);
         const per = 60 / bpm;
         const vol = 0.18 + 0.7 * v;
@@ -198,6 +199,16 @@ export function createTension(E) {
         }
       } else nextBeat = 0;
     },
+    /** Silence drone/whine immediately and forget the beat schedule (used by stopAll). */
+    silence() {
+      const t = ac.currentTime;
+      dg.gain.cancelScheduledValues(t); dg.gain.setTargetAtTime(0, t, 0.05);
+      wg.gain.cancelScheduledValues(t); wg.gain.setTargetAtTime(0, t, 0.05);
+      lp.frequency.cancelScheduledValues(t); lp.frequency.setTargetAtTime(110, t, 0.1);
+      nextBeat = 0; last = -1; acc = 0;
+    },
+    /** Re-sync the heartbeat scheduler to the current context time (after suspend/resume). */
+    resync() { nextBeat = 0; acc = 0; last = -1; },
     dispose() {
       for (const s of srcs) { try { s.stop(); } catch (e) { /* ignore */ } }
       for (const n of nodes) { try { n.disconnect(); } catch (e) { /* ignore */ } }

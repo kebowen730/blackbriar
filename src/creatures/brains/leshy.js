@@ -109,8 +109,14 @@ export default class Leshy extends Creature {
     if (this._treeSpot(this.pos, m.spot, false)) this.teleport(m.spot);
     else if (this.ctx.world?.trees?.length) {
       // nearest-tree fallback: snap to a random tree
-      const t = this.ctx.world.trees[(Math.random() * this.ctx.world.trees.length) | 0];
-      if (this._treeSpot(t, m.spot, false)) this.teleport(m.spot);
+      const pp = this.ctx.player?.pos;
+      const far = pp
+        ? this.ctx.world.trees.filter((t) => Math.hypot(t.x - pp.x, t.z - pp.z) >= 60)
+        : this.ctx.world.trees;
+      if (far.length) {
+        const t = far[(Math.random() * far.length) | 0];
+        if (this._treeSpot(t, m.spot, false)) this.teleport(m.spot);
+      } // else: stay at the spawn point
     } else {
       this.teleport(this.pickPointNear(this.pos, 8));
     }
